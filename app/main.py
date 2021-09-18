@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from PIL import Image, ImageDraw
 
+import datetime
+import pathlib
 import requests
 import logging
 import json
@@ -30,6 +32,8 @@ timeout = config.settings['timeout']
 min_sizex = config.settings['min_sizex']
 min_sizey = config.settings['min_sizey']
 min_confidence = config.settings['min_confidence']
+capture_path = pathlib.Path(config.settings['capture_dir'])
+logger.debug(f'Capture path is {capture_path}')
 
 logger.info(f"Synology login to {config.settings['sss_url']}")
 synology_session = SynologySession(config.settings['sss_url'], username, password)
@@ -174,7 +178,6 @@ async def read_item(camera_id):
 
 def save_image(predictions, camera_name, file_handle, ignore_areas):
     start = time.time()
-    logger.debug(f"Saving new image file....")
     im = Image.open(file_handle)
 
     draw = ImageDraw.Draw(im)
@@ -192,9 +195,14 @@ def save_image(predictions, camera_name, file_handle, ignore_areas):
                         ignore_area["x_max"], ignore_area["y_max"]), outline=(255, 66, 66), width=2)
         draw.text((ignore_area["x_min"]+10, ignore_area["y_min"]+10), f"ignore", fill=(255, 66, 66))
 
-    file_name = f"{config.settings['capture_dir']}/{camera_name}-{start}.jpg"
-    im.save(file_name, quality=100)
+    # TODO use timestamp from Synology
+    time_format = '%Y-%m-%dT%H:%M:%S'
+    time_now = datetime.datetime.now().strftime(time_format)
+    file_path = capture_path.joinpath(f'{time_now}-camera-{camera_name}').with_suffix('.jpg')
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    im.save(file_path, quality=100)
     im.close()
+    logger.info(f'Capture saved to {file_path}')
     end = time.time()
     runtime = round(end - start, 1)
-    logger.debug(f"Saved captured and annotated image: {file_name} in {runtime} seconds.")
+    logger.debug(f"Saved captured and annotated image: {file_path} in {runtime} seconds.")
