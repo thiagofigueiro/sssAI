@@ -105,8 +105,7 @@ async def read_item(camera_id):
         logger.info(f"No last camera time for {camera_id}")
 
     triggerurl = config.camera[camera_id]["trigger_url"]
-    if "homekit_acc_id" in config.camera[camera_id]:
-        homekit_acc_id = config.camera[camera_id]["homekit_acc_id"]
+    homekit_acc_id = config.camera[camera_id].get("homekit_acc_id")
 
     ignore_areas = []
     if "ignore_areas" in config.camera[camera_id]:
@@ -176,31 +175,42 @@ async def read_item(camera_id):
     return result
 
 
-def save_image(predictions, camera_name, file_handle, ignore_areas):
-    start = time.time()
-    im = Image.open(file_handle)
-
-    draw = ImageDraw.Draw(im)
-
-    for object in predictions:
-        confidence = round(100 * object["confidence"])
-        label = f"{object['label']} ({confidence}%)"
-        draw.rectangle((object["x_min"], object["y_min"], object["x_max"],
-                        object["y_max"]), outline=(255, 230, 66), width=2)
-        draw.text((object["x_min"]+10, object["y_min"]+10),
+def draw_predictions(predictions, draw):
+    for prediction in predictions:
+        confidence = round(100 * prediction["confidence"])
+        label = f"{prediction['label']} ({confidence}%)"
+        draw.rectangle((prediction["x_min"], prediction["y_min"], prediction["x_max"],
+                        prediction["y_max"]), outline=(255, 230, 66), width=2)
+        draw.text((prediction["x_min"]+10, prediction["y_min"]+10),
                   f"{label}", fill=(255, 230, 66))
+    pass
 
+
+def draw_ignore_areas(ignore_areas, draw):
     for ignore_area in ignore_areas:
         draw.rectangle((ignore_area["x_min"], ignore_area["y_min"],
                         ignore_area["x_max"], ignore_area["y_max"]), outline=(255, 66, 66), width=2)
         draw.text((ignore_area["x_min"]+10, ignore_area["y_min"]+10), f"ignore", fill=(255, 66, 66))
 
+
+def capture_image_path(camera_name):
     # TODO use timestamp from Synology
     time_format = '%Y-%m-%dT%H:%M:%S'
     time_now = datetime.datetime.now().strftime(time_format)
     file_path = capture_path.joinpath(f'{time_now}-camera-{camera_name}').with_suffix('.jpg')
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    im.save(file_path, quality=100)
+    return file_path
+
+
+def save_image(predictions, camera_name, file_path, ignore_areas):
+    start = time.time()
+    im = Image.open(file_path)
+    draw = ImageDraw.Draw(im)
+
+    draw_predictions(predictions, draw)
+    draw_ignore_areas(ignore_areas, draw)
+
+    im.save(capture_image_path(camera_name), quality=100)
     im.close()
     logger.info(f'Capture saved to {file_path}')
     end = time.time()
