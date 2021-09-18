@@ -7,6 +7,7 @@ import json
 import pickle
 import time
 import os
+from urllib.parse import urljoin
 
 from .config import Config
 
@@ -16,7 +17,6 @@ app = FastAPI()
 config = Config()
 
 sss_url = config.settings["sss_url"]
-deepstack_url = config.settings["deepstack_url"]
 homebridge_webhook_url = config.settings["homebridge_webhook_url"]
 username = config.settings["username"]
 password = config.settings["password"]
@@ -74,6 +74,19 @@ def isIgnored(rect, ignore_areas):
     return False
 
 
+def deepstack_detection(image):
+    deepstack_url = urljoin(config.settings['deepstack_url'], '/v1/vision/detection')
+    try:
+        s = time.perf_counter()
+        response = requests.post(f"{deepstack_url}", files={"image": image}, timeout=timeout).json()
+        e = time.perf_counter()
+        logging.debug(f'Deepstack result: {json.dumps(response, indent=2)}. Time: {e - s}s')
+    except (json.decoder.JSONDecodeError, requests.exceptions.ConnectionError) as e:
+        logging.error(e)
+        return None
+    return response
+
+
 @app.get("/{camera_id}")
 async def read_item(camera_id):
     start = time.time()
@@ -119,13 +132,9 @@ async def read_item(camera_id):
     snapshot_file = f"/tmp/{camera_id}.jpg"
     image_data = open(snapshot_file, "rb").read()
     logging.info('Requesting detection from DeepStack...')
-    s = time.perf_counter()
-    response = requests.post(f"{deepstack_url}/v1/vision/detection", files={"image": image_data}, timeout=timeout).json()
-
-    e = time.perf_counter()
-    logging.debug(f'Got result: {json.dumps(response, indent=2)}. Time: {e-s}s')
-    if not response["success"]:
-        return ("Error calling Deepstack: " + response["error"])
+    response = deepstack_detection(image_data)
+    if not response:
+        return 'Error calling Deepstack'
 
     labels = ''
     predictions = response["predictions"]
