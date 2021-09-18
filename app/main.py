@@ -12,8 +12,12 @@ from urllib.parse import urljoin
 from .config import Config
 from .synology import SynologySession
 
-logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
-logging.info('App Started')
+logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%dT%H:%M:%S%z')
+LOG_LEVEL = logging.getLevelName(os.environ.get("LOG_LEVEL", "INFO").upper())
+logger = logging.getLogger('app')  # need the root logger for the whole app, not just 'app.main'
+logger.setLevel(LOG_LEVEL)
+
+logger.info(f'App Started logger: {logger.name}')
 app = FastAPI()
 config = Config()
 
@@ -27,6 +31,7 @@ min_sizex = config.settings['min_sizex']
 min_sizey = config.settings['min_sizey']
 min_confidence = config.settings['min_confidence']
 
+logger.info(f"Synology login to {config.settings['sss_url']}")
 synology_session = SynologySession(config.settings['sss_url'], username, password)
 
 # Dictionary to save last trigger times for camera to stop flooding the capability
@@ -55,7 +60,7 @@ def contains(rOutside, rInside):
 def isIgnored(rect, ignore_areas):
     for ignore_area in ignore_areas:
         if contains(ignore_area, rect):
-            logging.info('Object in ignore area, not triggering')
+            logger.info('Object in ignore area, not triggering')
             return True
     return False
 
@@ -66,9 +71,9 @@ def deepstack_detection(image):
         s = time.perf_counter()
         response = requests.post(f"{deepstack_url}", files={"image": image}, timeout=timeout).json()
         e = time.perf_counter()
-        logging.debug(f'Deepstack result: {json.dumps(response, indent=2)}. Time: {e - s}s')
+        logger.debug(f'Deepstack result: {json.dumps(response, indent=2)}. Time: {e - s}s')
     except (json.decoder.JSONDecodeError, requests.exceptions.ConnectionError) as e:
-        logging.error(e)
+        logger.error(e)
         return None
     return response
 
@@ -85,15 +90,15 @@ async def read_item(camera_id):
     # Check we are outside the trigger interval for this camera
     if camera_id in last_trigger:
         t = last_trigger[camera_id]
-        logging.info(f"Found last camera time for {camera_id} was {t}")
+        logger.info(f"Found last camera time for {camera_id} was {t}")
         if (start - t) < config.settings['trigger_interval']:
             msg = f"Skipping detection on camera {camera_id} since it was only triggered {start - t}s ago"
-            logging.info(msg)
+            logger.info(msg)
             return (msg)
         else:
-            logging.info(f"Processing event on camera (last trigger was {start-t}s ago)")
+            logger.info(f"Processing event on camera (last trigger was {start-t}s ago)")
     else:
-        logging.info(f"No last camera time for {camera_id}")
+        logger.info(f"No last camera time for {camera_id}")
 
     triggerurl = config.camera[camera_id]["trigger_url"]
     if "homekit_acc_id" in config.camera[camera_id]:
@@ -110,7 +115,7 @@ async def read_item(camera_id):
             })
 
     snapshot = synology_session.snapshot(camera_id)
-    logging.info('Requesting detection from DeepStack...')
+    logger.info('Requesting detection from DeepStack...')
     response = deepstack_detection(snapshot.image_data)
     if not response:
         return 'Error calling Deepstack'
@@ -130,7 +135,7 @@ async def read_item(camera_id):
         label = prediction["label"]
         sizex = int(prediction["x_max"])-int(prediction["x_min"])
         sizey = int(prediction["y_max"])-int(prediction["y_min"])
-        logging.debug(f"  {label} ({confidence}%)   {sizex}x{sizey}")
+        logger.debug(f"  {label} ({confidence}%)   {sizex}x{sizey}")
 
         if not found and label in detection_labels and \
            sizex > min_sizex and \
@@ -141,18 +146,18 @@ async def read_item(camera_id):
             requests.request("GET", triggerurl, data={})
             end = time.time()
             runtime = round(end - start, 1)
-            logging.info(f"{confidence}% sure we found a {label} - triggering {cameraname} - took {runtime} seconds")
+            logger.info(f"{confidence}% sure we found a {label} - triggering {cameraname} - took {runtime} seconds")
 
             found = True
             last_trigger[camera_id] = time.time()
             save_last_trigger(last_trigger)
-            logging.debug(f"Saving last camera time for {camera_id} as {last_trigger[camera_id]}")
+            logger.debug(f"Saving last camera time for {camera_id} as {last_trigger[camera_id]}")
 
             if homebridge_webhook_url is not None and homekit_acc_id is not None:
                 hb = requests.get(f"{homebridge_webhook_url}/?accessoryId={homekit_acc_id}&state=true")
-                logging.debug(f"Sent message to homebridge webhook: {hb.status_code}")
+                logger.debug(f"Sent message to homebridge webhook: {hb.status_code}")
             else:
-                logging.debug(f"Skipping HomeBridge Webhook since no webhookUrl or accessory Id")
+                logger.debug(f"Skipping HomeBridge Webhook since no webhookUrl or accessory Id")
         i += 1
 
     end = time.time()
@@ -163,13 +168,13 @@ async def read_item(camera_id):
     else:
         result = f"{cameraname} triggered - nothing found - took {runtime} seconds"
 
-    logging.info(result)
+    logger.info(result)
     return result
 
 
 def save_image(predictions, camera_name, file_handle, ignore_areas):
     start = time.time()
-    logging.debug(f"Saving new image file....")
+    logger.debug(f"Saving new image file....")
     im = Image.open(file_handle)
 
     draw = ImageDraw.Draw(im)
@@ -192,4 +197,4 @@ def save_image(predictions, camera_name, file_handle, ignore_areas):
     im.close()
     end = time.time()
     runtime = round(end - start, 1)
-    logging.debug(f"Saved captured and annotated image: {file_name} in {runtime} seconds.")
+    logger.debug(f"Saved captured and annotated image: {file_name} in {runtime} seconds.")

@@ -1,17 +1,17 @@
 import os
 import logging
-import sys
 
 from gunicorn.app.base import BaseApplication
 from gunicorn.glogging import Logger
-from loguru import logger
 
 from app.main import app
 
 
 LOG_LEVEL = logging.getLevelName(os.environ.get("LOG_LEVEL", "INFO").upper())
+logger = logging.getLogger(__name__)  # __main__
+logger.setLevel(LOG_LEVEL)
+
 GUNICORN_SHOW_ERRORS = os.environ.get('GUNICORN_SHOW_ERRORS')
-JSON_LOGS = True if os.environ.get("JSON_LOGS", "0") == "1" else False
 WORKERS = int(os.environ.get("GUNICORN_WORKERS", "5"))
 
 
@@ -46,12 +46,6 @@ class StandaloneApplication(BaseApplication):
 
 
 if __name__ == '__main__':
-    logging.root.setLevel(LOG_LEVEL)
-
-    seen = set()
-
-    logger.configure(handlers=[{"sink": sys.stdout, "serialize": JSON_LOGS}])
-
     options = {
         "bind": "0.0.0.0:80",
         "workers": WORKERS,
@@ -61,4 +55,5 @@ if __name__ == '__main__':
         "logger_class": StubbedGunicornLogger
     }
 
+    logger.info('Starting gunicorn application')
     StandaloneApplication(app, options).run()

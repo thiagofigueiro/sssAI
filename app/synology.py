@@ -6,10 +6,11 @@ import tempfile
 
 from urllib.parse import urljoin
 
-
 LOGIN_PATH_TEMPLATE = '/webapi/auth.cgi?api=SYNO.API.Auth&method=Login&version=1&account={username}&passwd={password}&session=SurveillanceStation'
 SNAPSHOT_PATH_TEMPLATE = '/webapi/entry.cgi?camStm=1&version=2&cameraId={camera_id}&api=%22SYNO.SurveillanceStation.Camera%22&method=GetSnapshot'
 COOKIE_FILEPATH = 'cookie'
+
+logger = logging.getLogger(__name__)  # app.synology
 
 
 def save_cookies(requests_cookiejar, filename):
@@ -28,7 +29,7 @@ class Snapshot:
         self.file_name = self.temp_file.name
 
     def __del__(self):
-        logging.debug(f'Deleting temporary snapshot {self.file_name}')
+        logger.debug(f'Deleting temporary snapshot {self.file_name}')
         try:
             os.unlink(self.file_name)
         except FileNotFoundError:
@@ -42,7 +43,7 @@ class Snapshot:
     def _save(content):
         with tempfile.NamedTemporaryFile(delete=False) as f:
             f.write(content)
-            logging.debug(f'Wrote snapshot to {f.name}')
+            logger.debug(f'Wrote snapshot to {f.name}')
             return f
 
 
@@ -56,7 +57,7 @@ class SynologySession:
 
     def _request(self, url_path, **kwargs):
         url = urljoin(self.url, url_path)
-        logging.debug(f'GET {url}')
+        logger.debug(f'GET {url}')
         return requests.get(url, **kwargs)
 
     def login(self):
@@ -74,4 +75,4 @@ class SynologySession:
         if response.status_code == 200:
             return Snapshot(response.content)
 
-        logging.debug(f'Could not get snapshot: {response.status_code} {response.content}')
+        logger.debug(f'Could not get snapshot: {response.status_code} {response.content}')
