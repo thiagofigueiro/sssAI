@@ -3,8 +3,6 @@ from PIL import Image, ImageDraw
 
 import requests
 import logging
-import base64
-import time
 import json
 import pickle
 import time
