@@ -12,10 +12,10 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', datefmt=
 logging.info('App Started')
 app = FastAPI()
 
-with open('/config/cameras.json') as f:
+with open(os.environ.get('CAMERAS_JSON', '/config/cameras.json')) as f:
     cameradata = json.load(f)
 
-with open('/config/settings.json') as f:
+with open(os.environ.get('SETTINGS_JSON', '/config/settings.json')) as f:
     settings = json.load(f)
 
 sssUrl = settings["sssUrl"]
