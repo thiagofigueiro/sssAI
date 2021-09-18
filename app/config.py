@@ -1,5 +1,9 @@
 import json
+import logging
 import os
+import pprint
+
+logger = logging.getLogger(__name__)  # app.synology
 
 # TODO: replace with objects (ie. parse URLs, paths etc)
 DEFAULTS = {
@@ -34,9 +38,12 @@ LEGACY_CAMERAS_MAP = {
 class Config:
     def __init__(self):
         self.camera = self._read_json(os.environ.get('CAMERAS_JSON', '/config/cameras.json'))
-        self.settings = self._read_json(os.environ.get('SETTINGS_JSON', '/config/settings.json'))
-        self.settings.update(DEFAULTS)
+        self.settings = DEFAULTS.copy()
+        self.settings.update(
+            self._read_json(os.environ.get('SETTINGS_JSON', '/config/settings.json')))
         self._apply_legacy_keys()
+        logger.debug(f'Settings {pprint.pformat(self.settings, indent=2)}')
+        logger.debug(f'Cameras {pprint.pformat(self.camera, indent=2)}')
 
     def _apply_legacy_keys(self):
         def _replace(target, mapping):
