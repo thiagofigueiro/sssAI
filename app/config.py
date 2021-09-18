@@ -1,6 +1,7 @@
 import json
 import os
 
+# TODO: replace with objects (ie. parse URLs, paths etc)
 DEFAULTS = {
     'capture_dir': '/capture_dir',
     'detection_labels': ['car', 'person'],
@@ -14,11 +15,19 @@ DEFAULTS = {
     'trigger_interval': 60,
 }
 
-LEGACY_KEYS = {
+# these mappings keep compatibility with the legacy settings keys
+# there was a mix of camel-case and snake case; the new format uses snake case consistently
+LEGACY_SETTINGS_MAP = {
     'captureDir': 'capture_dir',
     'deepstackUrl': 'deepstack_url',
     'homebridgeWebhookUrl': 'homebridge_webhook_url',
     'sssUrl': 'sss_url',
+    'triggerInterval': 'trigger_interval',
+}
+
+LEGACY_CAMERAS_MAP = {
+    'triggerUrl': 'trigger_url',
+    'homekitAccId': 'homekit_acc_id',
 }
 
 
@@ -30,14 +39,19 @@ class Config:
         self._apply_legacy_keys()
 
     def _apply_legacy_keys(self):
-        for old_key, new_key in LEGACY_KEYS.items():
-            if self.settings.get(new_key) is None:
-                self.settings[new_key] = self.settings.get(old_key)
+        def _replace(target, mapping):
+            for old_key, new_key in mapping.items():
+                if target.get(new_key) is None:
+                    target[new_key] = target.get(old_key)
+
+        _replace(self.settings, LEGACY_SETTINGS_MAP)
+
+        for camera in self.camera.values():
+            _replace(camera, LEGACY_CAMERAS_MAP)
 
     @staticmethod
     def _read_json(file_path):
         with open(file_path) as fd:
             return json.load(fd)
-
 
 

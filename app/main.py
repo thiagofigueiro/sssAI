@@ -10,6 +10,7 @@ import os
 from urllib.parse import urljoin
 
 from .config import Config
+from .synology import SynologySession
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
 logging.info('App Started')
@@ -26,22 +27,7 @@ min_sizex = config.settings['min_sizex']
 min_sizey = config.settings['min_sizey']
 min_confidence = config.settings['min_confidence']
 
-
-def save_cookies(requests_cookiejar, filename):
-    with open(filename, 'wb') as f:
-        pickle.dump(requests_cookiejar, f)
-
-def load_cookies(filename):
-    with open(filename, 'rb') as f:
-        return pickle.load(f)
-
-# Create a session with synology
-url = f"{sss_url}/webapi/auth.cgi?api=SYNO.API.Auth&method=Login&version=1&account={username}&passwd={password}&session=SurveillanceStation"
-
-#  Save cookies
-logging.info('Session login: ' + url)
-r = requests.get(url)
-save_cookies(r.cookies, 'cookie')
+synology_session = SynologySession(config.settings['sss_url'], username, password)
 
 # Dictionary to save last trigger times for camera to stop flooding the capability
 last_trigger_fn = f"/tmp/last.dict"
@@ -90,8 +76,10 @@ def deepstack_detection(image):
 @app.get("/{camera_id}")
 async def read_item(camera_id):
     start = time.time()
-    cameraname = config.camera[camera_id]["name"]
-    predictions = None
+    try:
+        cameraname = config.camera[camera_id]["name"]
+    except KeyError:
+        return f'Configuration for camera {camera_id} not found'
     last_trigger = load_last_trigger()
 
     # Check we are outside the trigger interval for this camera
@@ -107,10 +95,9 @@ async def read_item(camera_id):
     else:
         logging.info(f"No last camera time for {camera_id}")
 
-    url = f"{sss_url}/webapi/entry.cgi?camStm=1&version=2&cameraId={camera_id}&api=%22SYNO.SurveillanceStation.Camera%22&method=GetSnapshot"
-    triggerurl = config.camera[camera_id]["triggerUrl"]
-    if "homekitAccId" in config.camera[camera_id]:
-        homekit_acc_id = config.camera[camera_id]["homekitAccId"]
+    triggerurl = config.camera[camera_id]["trigger_url"]
+    if "homekit_acc_id" in config.camera[camera_id]:
+        homekit_acc_id = config.camera[camera_id]["homekit_acc_id"]
 
     ignore_areas = []
     if "ignore_areas" in config.camera[camera_id]:
@@ -122,17 +109,9 @@ async def read_item(camera_id):
                 "x_max": int(ignore_area["x_max"])
             })
 
-    response = requests.request("GET", url, cookies=load_cookies('cookie'))
-    logging.debug('Requested snapshot: ' + url)
-    if response.status_code == 200:
-        with open(f"/tmp/{camera_id}.jpg", 'wb') as f:
-            f.write(response.content)
-            logging.debug('Snapshot downloaded')
-
-    snapshot_file = f"/tmp/{camera_id}.jpg"
-    image_data = open(snapshot_file, "rb").read()
+    snapshot = synology_session.snapshot(camera_id)
     logging.info('Requesting detection from DeepStack...')
-    response = deepstack_detection(image_data)
+    response = deepstack_detection(snapshot.image_data)
     if not response:
         return 'Error calling Deepstack'
 
@@ -159,8 +138,7 @@ async def read_item(camera_id):
            confidence > min_confidence and \
            not isIgnored(prediction, ignore_areas):
 
-            payload = {}
-            response = requests.request("GET", triggerurl, data=payload)
+            requests.request("GET", triggerurl, data={})
             end = time.time()
             runtime = round(end - start, 1)
             logging.info(f"{confidence}% sure we found a {label} - triggering {cameraname} - took {runtime} seconds")
@@ -180,17 +158,20 @@ async def read_item(camera_id):
     end = time.time()
     runtime = round(end - start, 1)
     if found:
-        save_image(predictions, cameraname, snapshot_file, ignore_areas)
-        return ("triggering camera because something was found - took {runtime} seconds")
+        save_image(predictions, cameraname, snapshot.file_name, ignore_areas)
+        result = f"triggering {cameraname} because something was found - took {runtime} seconds"
     else:
-        logging.info(f"{cameraname} triggered - nothing found - took {runtime} seconds")
-        return (f"{cameraname} triggered - nothing found")
+        result = f"{cameraname} triggered - nothing found - took {runtime} seconds"
+
+    logging.info(result)
+    return result
 
 
-def save_image(predictions, camera_name, snapshot_file, ignore_areas):
+def save_image(predictions, camera_name, file_handle, ignore_areas):
     start = time.time()
     logging.debug(f"Saving new image file....")
-    im = Image.open(snapshot_file)
+    im = Image.open(file_handle)
+
     draw = ImageDraw.Draw(im)
 
     for object in predictions:
@@ -206,9 +187,9 @@ def save_image(predictions, camera_name, snapshot_file, ignore_areas):
                         ignore_area["x_max"], ignore_area["y_max"]), outline=(255, 66, 66), width=2)
         draw.text((ignore_area["x_min"]+10, ignore_area["y_min"]+10), f"ignore", fill=(255, 66, 66))
 
-    fn = f"{config.settings['capture_dir']}/{camera_name}-{start}.jpg"
-    im.save(f"{fn}", quality=100)
+    file_name = f"{config.settings['capture_dir']}/{camera_name}-{start}.jpg"
+    im.save(file_name, quality=100)
     im.close()
     end = time.time()
     runtime = round(end - start, 1)
-    logging.debug(f"Saved captured and annotated image: {fn} in {runtime} seconds.")
+    logging.debug(f"Saved captured and annotated image: {file_name} in {runtime} seconds.")
