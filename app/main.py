@@ -77,7 +77,7 @@ def isIgnored(rect, ignore_areas):
 @app.get("/{camera_id}")
 async def read_item(camera_id):
     start = time.time()
-    cameraname = config.camera[f"{camera_id}"]["name"]
+    cameraname = config.camera[camera_id]["name"]
     predictions = None
     last_trigger = load_last_trigger()
 
@@ -95,13 +95,13 @@ async def read_item(camera_id):
         logging.info(f"No last camera time for {camera_id}")
 
     url = f"{sss_url}/webapi/entry.cgi?camStm=1&version=2&cameraId={camera_id}&api=%22SYNO.SurveillanceStation.Camera%22&method=GetSnapshot"
-    triggerurl = config.camera[f"{camera_id}"]["triggerUrl"]
-    if "homekitAccId" in config.camera[f"{camera_id}"]:
-        homekit_acc_id = config.camera[f"{camera_id}"]["homekitAccId"]
+    triggerurl = config.camera[camera_id]["triggerUrl"]
+    if "homekitAccId" in config.camera[camera_id]:
+        homekit_acc_id = config.camera[camera_id]["homekitAccId"]
 
     ignore_areas = []
-    if "ignore_areas" in config.camera[f"{camera_id}"]:
-        for ignore_area in config.camera[f"{camera_id}"]["ignore_areas"]:
+    if "ignore_areas" in config.camera[camera_id]:
+        for ignore_area in config.camera[camera_id]["ignore_areas"]:
             ignore_areas.append({
                 "y_min": int(ignore_area["y_min"]),
                 "x_min": int(ignore_area["x_min"]),
