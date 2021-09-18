@@ -1,6 +1,7 @@
 *.swp
 .vscode/*
 data/
+__pycache__/
 
 # OS generated files #
 ######################

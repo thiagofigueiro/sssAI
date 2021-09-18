@@ -8,52 +8,24 @@ import pickle
 import time
 import os
 
+from .config import Config
+
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
 logging.info('App Started')
 app = FastAPI()
+config = Config()
 
-with open(os.environ.get('CAMERAS_JSON', '/config/cameras.json')) as f:
-    cameradata = json.load(f)
+sss_url = config.settings["sss_url"]
+deepstack_url = config.settings["deepstack_url"]
+homebridge_webhook_url = config.settings["homebridge_webhook_url"]
+username = config.settings["username"]
+password = config.settings["password"]
+detection_labels = config.settings['detection_labels']
+timeout = config.settings['timeout']
+min_sizex = config.settings['min_sizex']
+min_sizey = config.settings['min_sizey']
+min_confidence = config.settings['min_confidence']
 
-with open(os.environ.get('SETTINGS_JSON', '/config/settings.json')) as f:
-    settings = json.load(f)
-
-sssUrl = settings["sssUrl"]
-deepstackUrl = settings["deepstackUrl"]
-homebridgeWebhookUrl = settings["homebridgeWebhookUrl"]
-username = settings["username"]
-password = settings["password"]
-
-detection_labels = ['car', 'person']
-if "detect_labels" in settings:
-    detection_labels = settings["detect_labels"]
-
-timeout = 10
-if "timeout" in settings:
-    timeout = int(settings["timeout"])
-
-min_sizex = 0
-if "min_sizex" in settings:
-    min_sizex = int(settings["min_sizex"])
-
-min_sizey = 0
-if "min_sizey" in settings:
-    min_sizey = int(settings["min_sizey"])
-
-min_confidence = 0
-if "min_confidence" in settings:
-    min_confidence = int(settings["min_confidence"])
-
-
-
-# If no trigger interval set then make it 60s (i.e. don't send another event from the triggered camera for at least 60s to stop flooding event notifications
-trigger_interval = 60
-if "triggerInterval" in settings:
-    trigger_interval = settings["triggerInterval"]
-
-capture_dir = "/captureDir"
-if "captureDir" in settings:
-    capture_dir = settings["captureDir"]
 
 def save_cookies(requests_cookiejar, filename):
     with open(filename, 'wb') as f:
@@ -64,7 +36,7 @@ def load_cookies(filename):
         return pickle.load(f)
 
 # Create a session with synology
-url = f"{sssUrl}/webapi/auth.cgi?api=SYNO.API.Auth&method=Login&version=1&account={username}&passwd={password}&session=SurveillanceStation"
+url = f"{sss_url}/webapi/auth.cgi?api=SYNO.API.Auth&method=Login&version=1&account={username}&passwd={password}&session=SurveillanceStation"
 
 #  Save cookies
 logging.info('Session login: ' + url)
@@ -74,9 +46,11 @@ save_cookies(r.cookies, 'cookie')
 # Dictionary to save last trigger times for camera to stop flooding the capability
 last_trigger_fn = f"/tmp/last.dict"
 
+
 def save_last_trigger(last_trigger):
     with open(last_trigger_fn, 'wb') as f:
         pickle.dump(last_trigger, f)
+
 
 def load_last_trigger():
     if os.path.exists(last_trigger_fn):
@@ -85,9 +59,11 @@ def load_last_trigger():
     else:
         return {}
 
+
 def contains(rOutside, rInside):
     return rOutside["x_min"] < rInside["x_min"] < rInside["x_max"] < rOutside["x_max"] and \
         rOutside["y_min"] < rInside["y_min"] < rInside["y_max"] < rOutside["y_max"]
+
 
 # If you would like to ignore objects outside the ignore area instead of inside, set this to contains(rect, ignore_area):
 def isIgnored(rect, ignore_areas):
@@ -97,10 +73,11 @@ def isIgnored(rect, ignore_areas):
             return True
     return False
 
+
 @app.get("/{camera_id}")
 async def read_item(camera_id):
     start = time.time()
-    cameraname = cameradata[f"{camera_id}"]["name"]
+    cameraname = config.camera[f"{camera_id}"]["name"]
     predictions = None
     last_trigger = load_last_trigger()
 
@@ -108,7 +85,7 @@ async def read_item(camera_id):
     if camera_id in last_trigger:
         t = last_trigger[camera_id]
         logging.info(f"Found last camera time for {camera_id} was {t}")
-        if (start - t) < trigger_interval:
+        if (start - t) < config.settings['trigger_interval']:
             msg = f"Skipping detection on camera {camera_id} since it was only triggered {start - t}s ago"
             logging.info(msg)
             return (msg)
@@ -117,14 +94,14 @@ async def read_item(camera_id):
     else:
         logging.info(f"No last camera time for {camera_id}")
 
-    url = f"{sssUrl}/webapi/entry.cgi?camStm=1&version=2&cameraId={camera_id}&api=%22SYNO.SurveillanceStation.Camera%22&method=GetSnapshot"
-    triggerurl = cameradata[f"{camera_id}"]["triggerUrl"]
-    if "homekitAccId" in cameradata[f"{camera_id}"]:
-        homekit_acc_id = cameradata[f"{camera_id}"]["homekitAccId"]
+    url = f"{sss_url}/webapi/entry.cgi?camStm=1&version=2&cameraId={camera_id}&api=%22SYNO.SurveillanceStation.Camera%22&method=GetSnapshot"
+    triggerurl = config.camera[f"{camera_id}"]["triggerUrl"]
+    if "homekitAccId" in config.camera[f"{camera_id}"]:
+        homekit_acc_id = config.camera[f"{camera_id}"]["homekitAccId"]
 
     ignore_areas = []
-    if "ignore_areas" in cameradata[f"{camera_id}"]:
-        for ignore_area in cameradata[f"{camera_id}"]["ignore_areas"]:
+    if "ignore_areas" in config.camera[f"{camera_id}"]:
+        for ignore_area in config.camera[f"{camera_id}"]["ignore_areas"]:
             ignore_areas.append({
                 "y_min": int(ignore_area["y_min"]),
                 "x_min": int(ignore_area["x_min"]),
@@ -143,7 +120,7 @@ async def read_item(camera_id):
     image_data = open(snapshot_file, "rb").read()
     logging.info('Requesting detection from DeepStack...')
     s = time.perf_counter()
-    response = requests.post(f"{deepstackUrl}/v1/vision/detection", files={"image": image_data}, timeout=timeout).json()
+    response = requests.post(f"{deepstack_url}/v1/vision/detection", files={"image": image_data}, timeout=timeout).json()
 
     e = time.perf_counter()
     logging.debug(f'Got result: {json.dumps(response, indent=2)}. Time: {e-s}s')
@@ -184,8 +161,8 @@ async def read_item(camera_id):
             save_last_trigger(last_trigger)
             logging.debug(f"Saving last camera time for {camera_id} as {last_trigger[camera_id]}")
 
-            if homebridgeWebhookUrl is not None and homekit_acc_id is not None:
-                hb = requests.get(f"{homebridgeWebhookUrl}/?accessoryId={homekit_acc_id}&state=true")
+            if homebridge_webhook_url is not None and homekit_acc_id is not None:
+                hb = requests.get(f"{homebridge_webhook_url}/?accessoryId={homekit_acc_id}&state=true")
                 logging.debug(f"Sent message to homebridge webhook: {hb.status_code}")
             else:
                 logging.debug(f"Skipping HomeBridge Webhook since no webhookUrl or accessory Id")
@@ -220,7 +197,7 @@ def save_image(predictions, camera_name, snapshot_file, ignore_areas):
                         ignore_area["x_max"], ignore_area["y_max"]), outline=(255, 66, 66), width=2)
         draw.text((ignore_area["x_min"]+10, ignore_area["y_min"]+10), f"ignore", fill=(255, 66, 66))
 
-    fn = f"{capture_dir}/{camera_name}-{start}.jpg"
+    fn = f"{config.settings['capture_dir']}/{camera_name}-{start}.jpg"
     im.save(f"{fn}", quality=100)
     im.close()
     end = time.time()
