@@ -39,7 +39,7 @@ logger.info(f"Synology login to {config.settings['sss_url']}")
 synology_session = SynologySession(config.settings['sss_url'], username, password)
 
 # Dictionary to save last trigger times for camera to stop flooding the capability
-last_trigger_fn = f"/tmp/last.dict"
+last_trigger_fn = "/tmp/last.dict"
 
 
 def save_last_trigger(last_trigger):
@@ -60,7 +60,8 @@ def contains(rOutside, rInside):
         rOutside["y_min"] < rInside["y_min"] < rInside["y_max"] < rOutside["y_max"]
 
 
-# If you would like to ignore objects outside the ignore area instead of inside, set this to contains(rect, ignore_area):
+# If you would like to ignore objects outside the ignore area instead of inside, set this to
+# contains(rect, ignore_area):
 def isIgnored(rect, ignore_areas):
     for ignore_area in ignore_areas:
         if contains(ignore_area, rect):
@@ -79,7 +80,58 @@ def deepstack_detection(image):
     except (json.decoder.JSONDecodeError, requests.exceptions.ConnectionError) as e:
         logger.error(e)
         return None
-    return response
+
+    return response['predictions']
+
+
+# TODO: move to Config
+def ignore_areas(camera_id):
+    areas = []
+    for area in config.camera[camera_id].get('ignore_areas', []):
+        areas.append({
+            "y_min": int(area["y_min"]),
+            "x_min": int(area["x_min"]),
+            "y_max": int(area["y_max"]),
+            "x_max": int(area["x_max"])
+        })
+    return areas
+
+
+def should_save(predictions, camera_id, last_trigger):
+    homekit_acc_id = config.camera[camera_id].get("homekit_acc_id")
+
+    start = time.time()
+    found = False
+    for prediction in predictions:
+        confidence = round(100 * prediction["confidence"])
+        label = prediction["label"]
+        sizex = int(prediction["x_max"])-int(prediction["x_min"])
+        sizey = int(prediction["y_max"])-int(prediction["y_min"])
+        logger.debug(f"  {label} ({confidence}%)   {sizex}x{sizey}")
+
+        if not found and label in detection_labels and \
+           sizex > min_sizex and \
+           sizey > min_sizey and \
+           confidence > min_confidence and \
+           not isIgnored(prediction, ignore_areas(camera_id)):
+            end = time.time()
+            runtime = round(end - start, 1)
+
+            logger.info(f"Found {label} in camera {camera_id} ({confidence}% confidence, took {runtime}s)")
+            requests.request("GET", config.camera[camera_id]["trigger_url"])
+
+            found = True
+            last_trigger[camera_id] = time.time()
+            save_last_trigger(last_trigger)
+            logger.debug(f"Saving last camera time for {camera_id} as {last_trigger[camera_id]}")
+
+            if homebridge_webhook_url is not None and homekit_acc_id is not None:
+                hb = requests.get(f"{homebridge_webhook_url}/?accessoryId={homekit_acc_id}&state=true")
+                logger.debug(f"Sent message to homebridge webhook: {hb.status_code}")
+            else:
+                logger.debug(f"Skipping HomeBridge Webhook since no webhookUrl or accessory Id")
+
+    return found
 
 
 @app.get("/{camera_id}")
@@ -104,69 +156,18 @@ async def read_item(camera_id):
     else:
         logger.info(f"No last camera time for {camera_id}")
 
-    triggerurl = config.camera[camera_id]["trigger_url"]
-    homekit_acc_id = config.camera[camera_id].get("homekit_acc_id")
-
-    ignore_areas = []
-    if "ignore_areas" in config.camera[camera_id]:
-        for ignore_area in config.camera[camera_id]["ignore_areas"]:
-            ignore_areas.append({
-                "y_min": int(ignore_area["y_min"]),
-                "x_min": int(ignore_area["x_min"]),
-                "y_max": int(ignore_area["y_max"]),
-                "x_max": int(ignore_area["x_max"])
-            })
-
     snapshot = synology_session.snapshot(camera_id)
     logger.info('Requesting detection from DeepStack...')
-    response = deepstack_detection(snapshot.image_data)
-    if not response:
+    predictions = deepstack_detection(snapshot.image_data)
+    if not predictions:
         return 'Error calling Deepstack'
 
-    labels = ''
-    predictions = response["predictions"]
-    for object in predictions:
-        label = object["label"]
-        if label != 'person':
-            labels = labels + label + ' '
-
-    i = 0
-    found = False
-
-    for prediction in response["predictions"]:
-        confidence = round(100 * prediction["confidence"])
-        label = prediction["label"]
-        sizex = int(prediction["x_max"])-int(prediction["x_min"])
-        sizey = int(prediction["y_max"])-int(prediction["y_min"])
-        logger.debug(f"  {label} ({confidence}%)   {sizex}x{sizey}")
-
-        if not found and label in detection_labels and \
-           sizex > min_sizex and \
-           sizey > min_sizey and \
-           confidence > min_confidence and \
-           not isIgnored(prediction, ignore_areas):
-
-            requests.request("GET", triggerurl, data={})
-            end = time.time()
-            runtime = round(end - start, 1)
-            logger.info(f"{confidence}% sure we found a {label} - triggering {cameraname} - took {runtime} seconds")
-
-            found = True
-            last_trigger[camera_id] = time.time()
-            save_last_trigger(last_trigger)
-            logger.debug(f"Saving last camera time for {camera_id} as {last_trigger[camera_id]}")
-
-            if homebridge_webhook_url is not None and homekit_acc_id is not None:
-                hb = requests.get(f"{homebridge_webhook_url}/?accessoryId={homekit_acc_id}&state=true")
-                logger.debug(f"Sent message to homebridge webhook: {hb.status_code}")
-            else:
-                logger.debug(f"Skipping HomeBridge Webhook since no webhookUrl or accessory Id")
-        i += 1
+    found = should_save(predictions, camera_id, last_trigger)
 
     end = time.time()
     runtime = round(end - start, 1)
     if found:
-        save_image(predictions, cameraname, snapshot.file_name, ignore_areas)
+        save_image(predictions, cameraname, snapshot.file_name, camera_id)
         result = f"triggering {cameraname} because something was found - took {runtime} seconds"
     else:
         result = f"{cameraname} triggered - nothing found - took {runtime} seconds"
@@ -186,33 +187,35 @@ def draw_predictions(predictions, draw):
     pass
 
 
-def draw_ignore_areas(ignore_areas, draw):
-    for ignore_area in ignore_areas:
-        draw.rectangle((ignore_area["x_min"], ignore_area["y_min"],
-                        ignore_area["x_max"], ignore_area["y_max"]), outline=(255, 66, 66), width=2)
-        draw.text((ignore_area["x_min"]+10, ignore_area["y_min"]+10), f"ignore", fill=(255, 66, 66))
+def draw_ignore_areas(areas, draw):
+    for coord in areas:
+        draw.rectangle((coord["x_min"], coord["y_min"],
+                        coord["x_max"], coord["y_max"]), outline=(255, 66, 66), width=2)
+        draw.text((coord["x_min"]+10, coord["y_min"]+10), f"ignore", fill=(255, 66, 66))
 
 
-def capture_image_path(camera_name):
+def capture_image_path(camera_name, camera_id):
     # TODO use timestamp from Synology
     time_format = '%Y-%m-%dT%H:%M:%S'
     time_now = datetime.datetime.now().strftime(time_format)
-    file_path = capture_path.joinpath(f'{time_now}-camera-{camera_name}').with_suffix('.jpg')
+    file_path = capture_path.joinpath(
+        f'{time_now}-camera-{camera_id}-{camera_name}').with_suffix('.jpg')
     file_path.parent.mkdir(parents=True, exist_ok=True)
     return file_path
 
 
-def save_image(predictions, camera_name, file_path, ignore_areas):
+def save_image(predictions, camera_name, source_path, camera_id):
     start = time.time()
-    im = Image.open(file_path)
+    im = Image.open(source_path)
     draw = ImageDraw.Draw(im)
 
     draw_predictions(predictions, draw)
-    draw_ignore_areas(ignore_areas, draw)
+    draw_ignore_areas(ignore_areas(camera_id), draw)
 
-    im.save(capture_image_path(camera_name), quality=100)
+    dest_path = capture_image_path(camera_name, camera_id)
+    im.save(dest_path, quality=100)
     im.close()
-    logger.info(f'Capture saved to {file_path}')
+    logger.info(f'Capture saved to {dest_path}')
     end = time.time()
     runtime = round(end - start, 1)
-    logger.debug(f"Saved captured and annotated image: {file_path} in {runtime} seconds.")
+    logger.debug(f"Saved captured and annotated image: {dest_path} in {runtime} seconds.")
