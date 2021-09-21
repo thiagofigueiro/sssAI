@@ -12,7 +12,7 @@ services:
     container_name: ssaai
     volumes:
       # mkdir -p ./data/captures
-      - ./data/captures:/captureDir
+      - ./data/captures:/capture_dir
       - ./cameras.json:/config/cameras.json:ro
       - ./settings.json:/config/settings.json:ro
     ports:

@@ -1,0 +1,14 @@
+{
+    "sss_url":"http://localhost:8000",
+	"deepstack_url": "http://deepquestai-deepstack:5000",
+	"username": "username",
+	"password": "password",
+	"detect_labels": ["car", "person", "chair"],
+	"min_sizex": 100,
+	"min_sizey": 100,
+	"triggerInterval": 15,
+	"timeout": 180,
+	"min_confidence": 50,
+	"capture_dir": "./capture_dir",
+	"homebridge_webhook_url": null
+}

@@ -1,6 +1,6 @@
 {
-	"sssUrl": "http://192.168.178.10:5000",
-	"deepstackUrl": "http://192.168.178.10:83",
+	"sss_url": "http://192.168.178.10:5000",
+	"deepstack_url": "http://192.168.178.10:83",
 	"username": "username",
 	"password": "passowrd",
 	"detect_labels": [
@@ -11,6 +11,6 @@
 	"triggerInterval": 15,
 	"timeout": 180,
 	"min_confidence": 60,
-	"captureDir": "/captureDir",
-	"homebridgeWebhookUrl": null
+	"capture_dir": "/capture_dir",
+	"homebridge_webhook_url": null
 }

@@ -1,0 +1,130 @@
+image: alpine:latest
+variables:
+  DOCKER_DRIVER: overlay2
+  CS_SEVERITY_THRESHOLD: high
+  CI_IMAGE: "${CI_REGISTRY_IMAGE}/ci-image"
+
+stages:
+  - build
+  - test
+  - deploy  # dummy stage to follow the template guidelines
+  - cleanup
+
+ci-image:
+  stage: build
+  image: docker:20
+  services:
+    - name: 'docker:20-dind'
+  rules:
+    - changes:
+        - tests/fixtures/Dockerfile
+        - dev-requirements.txt
+        - requirements.txt
+  script:
+    - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+    - docker build -f tests/fixtures/Dockerfile -t "${CI_IMAGE}" .
+    - docker push "${CI_IMAGE}"
+
+integration:
+  image: docker:20
+  dependencies:
+    - ci-image
+  stage: test
+  variables:
+    FF_NETWORK_PER_BUILD: 1
+    # deepstack settings
+    VISION_DETECTION: 'True'
+    MODE: 'High'
+  services:
+    - name: 'docker:20-dind'
+    - name: 'deepquestai/deepstack'
+  script:
+    - apk add bash
+    - ./bin/ci-integration.sh
+
+workflow:
+  rules:
+    - if: '$BUILDPACK_URL || $AUTO_DEVOPS_EXPLICITLY_ENABLED == "1" || $DOCKERFILE_PATH'
+
+    - exists:
+        - Dockerfile
+
+    # https://github.com/heroku/heroku-buildpack-clojure
+    - exists:
+        - project.clj
+
+    # https://github.com/heroku/heroku-buildpack-go
+    - exists:
+        - go.mod
+        - Gopkg.mod
+        - Godeps/Godeps.json
+        - vendor/vendor.json
+        - glide.yaml
+        - src/**/*.go
+
+    # https://github.com/heroku/heroku-buildpack-gradle
+    - exists:
+        - gradlew
+        - build.gradle
+        - settings.gradle
+
+    # https://github.com/heroku/heroku-buildpack-java
+    - exists:
+        - pom.xml
+        - pom.atom
+        - pom.clj
+        - pom.groovy
+        - pom.rb
+        - pom.scala
+        - pom.yaml
+        - pom.yml
+
+    # https://github.com/heroku/heroku-buildpack-multi
+    - exists:
+        - .buildpacks
+
+    # https://github.com/heroku/heroku-buildpack-nodejs
+    - exists:
+        - package.json
+
+    # https://github.com/heroku/heroku-buildpack-php
+    - exists:
+        - composer.json
+        - index.php
+
+    # https://github.com/heroku/heroku-buildpack-play
+    # TODO: detect script excludes some scala files
+    - exists:
+        - '**/conf/application.conf'
+
+    # https://github.com/heroku/heroku-buildpack-python
+    # TODO: detect script checks that all of these exist, not any
+    - exists:
+        - requirements.txt
+        - setup.py
+        - Pipfile
+
+    # https://github.com/heroku/heroku-buildpack-ruby
+    - exists:
+        - Gemfile
+
+    # https://github.com/heroku/heroku-buildpack-scala
+    - exists:
+        - '*.sbt'
+        - project/*.scala
+        - .sbt/*.scala
+        - project/build.properties
+
+    # https://github.com/dokku/buildpack-nginx
+    - exists:
+        - .static
+
+include:
+  - template: Jobs/Build.gitlab-ci.yml  # https://gitlab.com/gitlab-org/gitlab/blob/master/lib/gitlab/ci/templates/Jobs/Build.gitlab-ci.yml
+  - template: Jobs/Code-Quality.gitlab-ci.yml  # https://gitlab.com/gitlab-org/gitlab/blob/master/lib/gitlab/ci/templates/Jobs/Code-Quality.gitlab-ci.yml
+  - template: Jobs/Code-Intelligence.gitlab-ci.yml  # https://gitlab.com/gitlab-org/gitlab/blob/master/lib/gitlab/ci/templates/Jobs/Code-Intelligence.gitlab-ci.yml
+  - template: Security/Container-Scanning.gitlab-ci.yml  # https://gitlab.com/gitlab-org/gitlab/blob/master/lib/gitlab/ci/templates/Security/Container-Scanning.gitlab-ci.yml
+  - template: Security/Dependency-Scanning.gitlab-ci.yml  # https://gitlab.com/gitlab-org/gitlab/blob/master/lib/gitlab/ci/templates/Security/Dependency-Scanning.gitlab-ci.yml
+  - template: Security/License-Scanning.gitlab-ci.yml  # https://gitlab.com/gitlab-org/gitlab/blob/master/lib/gitlab/ci/templates/Security/License-Scanning.gitlab-ci.yml
+  - template: Security/SAST.gitlab-ci.yml  # https://gitlab.com/gitlab-org/gitlab/blob/master/lib/gitlab/ci/templates/Security/SAST.gitlab-ci.yml
+  - template: Security/Secret-Detection.gitlab-ci.yml  # https://gitlab.com/gitlab-org/gitlab/blob/master/lib/gitlab/ci/templates/Security/Secret-Detection.gitlab-ci.yml

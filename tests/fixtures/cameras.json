@@ -1,0 +1,18 @@
+{
+    "1": {
+        "name": "Back Yard",
+        "triggerUrl": "http://localhost:8000/trigger/1",
+        "ignore_areas": [
+            {
+                "y_min": 692,
+                "x_min": 3,
+                "y_max": 1294,
+                "x_max": 318
+            }
+        ]
+    },
+    "2": {
+        "name": "Front Door",
+        "triggerUrl": "http://localhost:8000/trigger/2"
+	}
+}
