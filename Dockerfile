@@ -1,4 +1,4 @@
-FROM tiangolo/uvicorn-gunicorn-fastapi:python3.7
+FROM tiangolo/uvicorn-gunicorn-fastapi:python3.9-slim
 RUN apt-get update \
       && apt-get upgrade -y \
       && rm -rf /var/lib/apt/lists/*

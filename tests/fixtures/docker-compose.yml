@@ -1,0 +1,27 @@
+version: "3.3"
+
+services:
+  sssai:
+    depends_on:
+      - deepstack
+    build:
+      context: .
+      args:
+        TZ: Australia/Sydney
+    image: sssai:latest
+    container_name: test-ssaai
+    volumes:
+      - ./:/app
+    ports:
+      - "4242:80"
+    environment:
+      LOG_LEVEL: 'debug'
+
+  deepquestai-deepstack:
+    image: deepquestai/deepstack
+    container_name: test-ssaai_deepstack
+    environment:
+      MODE: 'High'
+      VISION-DETECTION: 'True'
+    ports:
+      - "5000:5000"
