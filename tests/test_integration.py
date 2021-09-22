@@ -22,5 +22,5 @@ def test_request(image_name, client, httpserver, test_image, config):
     response = client.get(f'/{camera_id}')
 
     assert response.status_code == 200
-    assert f'Recording {cameraname}' in response.text
+    assert f'Camera {camera_id}: recording {cameraname}' in response.text
     httpserver.check_assertions()

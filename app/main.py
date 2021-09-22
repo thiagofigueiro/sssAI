@@ -40,9 +40,11 @@ synology_session = SynologySession(config.settings['sss_url'], username, passwor
 last_trigger_fn = "/tmp/last.dict"
 
 
-def save_last_trigger(last_trigger):
+def save_last_trigger(camera_id):
+    trigger_data = load_last_trigger()
+    trigger_data[camera_id] = time.time()
     with open(last_trigger_fn, 'wb') as f:
-        pickle.dump(last_trigger, f)
+        pickle.dump(trigger_data, f)
 
 
 def load_last_trigger():
@@ -51,6 +53,10 @@ def load_last_trigger():
             return pickle.load(f)
     else:
         return {}
+
+
+def last_trigger(camera_id):
+    return load_last_trigger().get(camera_id)
 
 
 def contains(rOutside, rInside):
@@ -126,17 +132,25 @@ def found_something(prediction, camera_id):
     return found
 
 
-def should_save(predictions, camera_id, last_trigger):
+def should_save(predictions, camera_id):
     for prediction in predictions:
         if found_something(prediction, camera_id):
-            requests.get(config.camera[camera_id]["trigger_url"])
-            last_trigger[camera_id] = time.time()
-            save_last_trigger(last_trigger)
-            logger.debug(f"Saving last camera time for {camera_id} as {last_trigger[camera_id]}")
-
+            logger.debug(f"Camera {camera_id} matched prediction {prediction}")
             return True
 
     return False
+
+
+def should_skip(camera_id):
+    timestamp = last_trigger(camera_id)
+    now = time.time()
+
+    if timestamp:
+        logger.debug(f"Last timestamp for camera {camera_id} was {timestamp}")
+        if (now - timestamp) < config.settings['trigger_interval']:
+            return True
+    else:
+        logger.debug(f"No last camera time for {camera_id}")
 
 
 @app.get("/{camera_id}")
@@ -146,43 +160,40 @@ async def read_item(camera_id):
         cameraname = config.camera[camera_id]["name"]
     except KeyError:
         return f'Configuration for camera {camera_id} not found'
-    last_trigger = load_last_trigger()
 
-    # Check we are outside the trigger interval for this camera
-    if camera_id in last_trigger:
-        t = last_trigger[camera_id]
-        logger.info(f"Found last camera time for {camera_id} was {t}")
-        if (start - t) < config.settings['trigger_interval']:
-            msg = f"Skipping detection on camera {camera_id} since it was only triggered {start - t}s ago"
-            logger.info(msg)
-            return (msg)
-        else:
-            logger.info(f"Processing event on camera (last trigger was {start - t}s ago)")
-    else:
-        logger.info(f"No last camera time for {camera_id}")
+    if should_skip(camera_id):
+        msg = (f"Camera {camera_id}: skipping detection as it was triggered "
+               f"<{config.settings['trigger_interval']}s ago")
+        logger.info(msg)
+        return msg
+
+    logger.info(f"Camera {camera_id}: processing event")
+    save_last_trigger(camera_id)
 
     snapshot = synology_session.snapshot(camera_id)
     if not snapshot:
-        return f'Failed to get snapshot for camera {camera_id}'
+        return f'Camera {camera_id}: failed to get snapshot'
 
     predictions = deepstack_detection(snapshot.image_data)
     if not predictions:
         return 'Error calling Deepstack'
 
-    found = should_save(predictions, camera_id, last_trigger)
+    found = should_save(predictions, camera_id)
 
     end = time.time()
     runtime = round(end - start, 1)
     if found:
+        requests.get(config.camera[camera_id]["trigger_url"])
+
         homekit_acc_id = config.camera[camera_id].get("homekit_acc_id")
         if homebridge_webhook_url and homekit_acc_id:
             hb = requests.get(f"{homebridge_webhook_url}/?accessoryId={homekit_acc_id}&state=true")
             logger.debug(f"Sent message to homebridge webhook: {hb.status_code}")
 
         save_image(predictions, cameraname, snapshot.file_name, camera_id)
-        result = f"Recording {cameraname} (analysed in {runtime}s)"
+        result = f"Camera {camera_id}: recording {cameraname} (analysed in {runtime}s)"
     else:
-        result = f"Ignoring movement on {cameraname} (analysed in {runtime}s)"
+        result = f"Camera {camera_id}: ignoring movement on {cameraname} (analysed in {runtime}s)"
 
     logger.info(result)
     return result
@@ -217,7 +228,6 @@ def capture_image_path(camera_name, camera_id):
 
 
 def save_image(predictions, camera_name, source_path, camera_id):
-    start = time.time()
     im = Image.open(source_path)
     draw = ImageDraw.Draw(im)
 
@@ -228,6 +238,4 @@ def save_image(predictions, camera_name, source_path, camera_id):
     im.save(dest_path, quality=100)
     im.close()
     logger.info(f'Capture saved to {dest_path}')
-    end = time.time()
-    runtime = round(end - start, 1)
-    logger.debug(f"Saved captured and annotated image: {dest_path} in {runtime} seconds.")
+    logger.debug(f"Camera {camera_id}: saved annotated image {dest_path}")
