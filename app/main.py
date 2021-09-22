@@ -66,11 +66,13 @@ def contains(rOutside, rInside):
 
 # If you would like to ignore objects outside the ignore area instead of inside, set this to
 # contains(rect, ignore_area):
-def isIgnored(rect, ignore_areas):
-    for ignore_area in ignore_areas:
-        if contains(ignore_area, rect):
-            logger.info('Object in ignore area, not triggering')
+def is_ignored(object_area, areas_to_ignore):
+    for ignore_area in areas_to_ignore:
+        if contains(ignore_area, object_area):
+            logger.debug(f'Object ({object_area}) inside ignore area ({ignore_area}')
             return True
+
+    logger.debug(f'Object ({object_area}) outside all ignore areas ({areas_to_ignore}')
     return False
 
 
@@ -118,13 +120,13 @@ def found_something(prediction, camera_id):
     logger.debug(
         f"{label} ({confidence}%) {prediction_size(prediction)[0]}x{prediction_size(prediction)[0]} "
         f"fits={_fits_size()} label={label in detection_labels} "
-        f"confidence={confidence>min_confidence} ignored={isIgnored(prediction, ignore_areas(camera_id))}")
+        f"confidence={confidence>min_confidence} ignored={is_ignored(prediction, ignore_areas(camera_id))}")
 
     found = (
             label in detection_labels
             and _fits_size()
             and confidence > min_confidence
-            and not isIgnored(prediction, ignore_areas(camera_id))
+            and not is_ignored(prediction, ignore_areas(camera_id))
     )
     if found:
         logger.info(f"Found {label} in camera {camera_id} ({confidence}% confidence)")

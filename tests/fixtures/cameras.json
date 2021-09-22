@@ -1,18 +1,42 @@
 {
     "1": {
         "name": "Back Yard",
-        "triggerUrl": "http://localhost:8000/trigger/1",
-        "ignore_areas": [
-            {
-                "y_min": 692,
-                "x_min": 3,
-                "y_max": 1294,
-                "x_max": 318
-            }
-        ]
+        "triggerUrl": "http://localhost:8000/trigger/1"
     },
     "2": {
         "name": "Front Door",
-        "triggerUrl": "http://localhost:8000/trigger/2"
-	}
+        "triggerUrl": "http://localhost:8000/trigger/2",
+        "ignore_areas": [
+            {
+                "y_min": 100,
+                "y_max": 300,
+                "x_min": 1800,
+                "x_max": 2000
+            },
+            {
+                "y_min": 50,
+                "y_max": 250,
+                "x_min": 500,
+                "x_max": 700
+            }
+        ]
+	},
+    "3": {
+        "name": "East",
+        "triggerUrl": "http://localhost:8000/trigger/3",
+        "ignore_areas": [
+            {
+                "y_min": 0,
+                "y_max": 279,
+                "x_min": 1700,
+                "x_max": 2175
+            },
+            {
+                "y_min": 5,
+                "y_max": 150,
+                "x_min": 590,
+                "x_max": 820
+            }
+        ]
+    }
 }
