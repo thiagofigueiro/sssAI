@@ -239,5 +239,4 @@ def save_image(predictions, camera_name, source_path, camera_id):
     dest_path = capture_image_path(camera_name, camera_id)
     im.save(dest_path, quality=100)
     im.close()
-    logger.info(f'Capture saved to {dest_path}')
-    logger.debug(f"Camera {camera_id}: saved annotated image {dest_path}")
+    logger.info(f'Camera {camera_id}: Capture of {camera_name} saved to {dest_path}')
