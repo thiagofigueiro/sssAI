@@ -87,7 +87,7 @@ def deepstack_detection(image):
         logger.error(e)
         return None
 
-    return response['predictions']
+    return response.get('predictions')
 
 
 # TODO: move to Config
@@ -148,11 +148,16 @@ def should_skip(camera_id):
     now = time.time()
 
     if timestamp:
-        logger.debug(f"Last timestamp for camera {camera_id} was {timestamp}")
+        logger.debug(f"Camera {camera_id}: last timestamp was {timestamp}")
         if (now - timestamp) < config.settings['trigger_interval']:
             return True
     else:
         logger.debug(f"No last camera time for {camera_id}")
+
+
+def with_log(msg):
+    logger.info(msg)
+    return msg
 
 
 @app.get("/{camera_id}")
@@ -161,24 +166,23 @@ async def read_item(camera_id):
     try:
         cameraname = config.camera[camera_id]["name"]
     except KeyError:
-        return f'Configuration for camera {camera_id} not found'
+        return with_log(f'Configuration for camera {camera_id} not found')
 
     if should_skip(camera_id):
         msg = (f"Camera {camera_id}: skipping detection as it was triggered "
                f"<{config.settings['trigger_interval']}s ago")
-        logger.info(msg)
-        return msg
+        return with_log(msg)
 
     logger.info(f"Camera {camera_id}: processing event")
     save_last_trigger(camera_id)
 
     snapshot = synology_session.snapshot(camera_id)
     if not snapshot:
-        return f'Camera {camera_id}: failed to get snapshot'
+        return with_log(f'Camera {camera_id}: failed to get snapshot')
 
     predictions = deepstack_detection(snapshot.image_data)
     if not predictions:
-        return 'Error calling Deepstack'
+        return with_log(f"Camera {camera_id}: error calling Deepstack")
 
     found = should_save(predictions, camera_id)
 
@@ -197,8 +201,7 @@ async def read_item(camera_id):
     else:
         result = f"Camera {camera_id}: ignoring movement on {cameraname} (analysed in {runtime}s)"
 
-    logger.info(result)
-    return result
+    return with_log(result)
 
 
 def draw_predictions(predictions, draw):

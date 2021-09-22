@@ -62,17 +62,25 @@ class SynologySession:
 
     def login(self):
         url_path = LOGIN_PATH_TEMPLATE.format(username=self.username, password=self.password)
-        r = self._request(url_path)
-        save_cookies(r.cookies, self.cookie_filepath)
+        try:
+            r = self._request(url_path)
+            save_cookies(r.cookies, self.cookie_filepath)
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f'Login error: {e}')
+            raise e from None
 
     def cookies(self):
         return load_cookies(self.cookie_filepath)
 
     def snapshot(self, camera_id):
         url_path = SNAPSHOT_PATH_TEMPLATE.format(camera_id=camera_id)
-        response = self._request(url_path, cookies=self.cookies())
+        err_msg = ''
+        try:
+            response = self._request(url_path, cookies=self.cookies())
+            if response.status_code == 200:
+                return Snapshot(response.content)
+            err_msg = f'{response.status_code} {response.content}'
+        except requests.exceptions.ConnectionError as e:
+            err_msg += str(e)
 
-        if response.status_code == 200:
-            return Snapshot(response.content)
-
-        logger.debug(f'Could not get snapshot: {response.status_code} {response.content}')
+        logger.error(f'Could not get snapshot: {err_msg}')
