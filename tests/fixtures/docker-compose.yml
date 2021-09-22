@@ -3,7 +3,7 @@ version: "3.3"
 services:
   sssai:
     depends_on:
-      - deepstack
+      - deepquestai-deepstack
     build:
       context: .
       args:
